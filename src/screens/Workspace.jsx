@@ -9,6 +9,7 @@ import { ROLE_LABELS, SYSTEM_LABELS, SYSTEM_STATUSES, INPUT, BTN, GHOST } from '
 import Icon from '../components/Icon';
 import { Modal, Field, Spinner } from '../components/ui';
 import PhotoPicker from '../components/PhotoPicker';
+import Brand from '../components/Brand';
 import BlueprintsTab from '../tabs/BlueprintsTab';
 import DefectsTab from '../tabs/DefectsTab';
 import RoomsTab from '../tabs/RoomsTab';
@@ -189,15 +190,9 @@ export default function Workspace({ profile }) {
 
   return (
     <div className="min-h-screen text-slate-100">
-      <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-40">
+      <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-40" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         <div className="max-w-7xl mx-auto px-4 py-2 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-3">
-            <div className="bg-amber-500 text-slate-950 p-2 rounded-xl"><Icon name="hat" className="w-6 h-6" /></div>
-            <div>
-              <span className="font-black text-lg tracking-wider text-white">SITEMASTER</span>
-              <span className="text-amber-400 font-bold text-xs mr-1">PRO</span>
-            </div>
-          </div>
+          <Brand />
           <div className="flex items-center gap-2 flex-wrap">
             {busy && <Spinner className="w-4 h-4 text-amber-400" />}
             {projects.length > 0 && (

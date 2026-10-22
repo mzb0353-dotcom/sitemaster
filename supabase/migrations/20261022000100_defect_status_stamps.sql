@@ -1,40 +1,34 @@
 -- ============================================================
--- מילוי אוטומטי של fixed_date ו-approved_by לפי מעבר סטטוס של ליקוי.
--- האפליקציה לא שולחת את השדות האלה, והשרת קובע אותם כדי שאי אפשר יהיה לזייף אותם:
---   * -> pending : fixed_date = היום (הקבלן הגיש תיקון)
---   * -> closed  : approved_by = המשתמש המחובר; רק מנהל רשאי לסגור
---   * -> open    : מנקה fixed_date ו-approved_by (תיקון נדחה / נפתח מחדש)
--- עדכונים בלי משתמש מחובר (SQL Editor, service role) לא נחסמים.
+-- הגרסה שהורצה בפועל ב-Supabase (2026-10-22). הוחלפה ע"י 20261023000000_team_rls.sql,
+-- שמסירה את הטריגר הזה ומתקינה stamp_defect_status במקומו.
 -- ============================================================
-
-CREATE OR REPLACE FUNCTION public.stamp_defect_status()
+CREATE OR REPLACE FUNCTION public.handle_defect_status_stamps()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  IF NEW.status IS NOT DISTINCT FROM OLD.status THEN
-    -- שינוי שלא נוגע בסטטוס לא רשאי לשנות את חותמות האישור
-    NEW.approved_by := OLD.approved_by;
-    NEW.fixed_date := OLD.fixed_date;
-    RETURN NEW;
+  -- קבלן מגיש תיקון: מילוי אוטומטי של תאריך תיקון
+  IF NEW.status = 'pending' AND (OLD.status IS NULL OR OLD.status != 'pending') THEN
+    NEW.fixed_date := CURRENT_DATE;
   END IF;
 
-  IF NEW.status = 'pending' THEN
-    NEW.fixed_date := CURRENT_DATE;
-    NEW.approved_by := NULL;
-  ELSIF NEW.status = 'closed' THEN
-    IF auth.uid() IS NOT NULL AND public.get_my_role() IS DISTINCT FROM 'manager' THEN
-      RAISE EXCEPTION 'only a manager can close a defect' USING ERRCODE = '42501';
+  -- מנהל מאשר וסוגר ליקוי: חתימה מאובטחת של המאשר
+  IF NEW.status = 'closed' AND (OLD.status IS NULL OR OLD.status != 'closed') THEN
+    IF auth.uid() IS NOT NULL AND public.get_my_role() != 'manager' THEN
+      RAISE EXCEPTION 'רק מנהל פרויקט רשאי לאשר ולסגור ליקוי';
     END IF;
     NEW.approved_by := auth.uid();
-    NEW.fixed_date := COALESCE(NEW.fixed_date, OLD.fixed_date, CURRENT_DATE);
-  ELSIF NEW.status = 'open' THEN
+  END IF;
+
+  -- דחיית תיקון: איפוס השדות
+  IF NEW.status = 'open' AND OLD.status = 'pending' THEN
     NEW.fixed_date := NULL;
     NEW.approved_by := NULL;
   END IF;
+
   RETURN NEW;
 END;
 $$;
-REVOKE EXECUTE ON FUNCTION public.stamp_defect_status() FROM PUBLIC, anon, authenticated;
 
-DROP TRIGGER IF EXISTS defects_stamp_status ON public.defects;
-CREATE TRIGGER defects_stamp_status BEFORE UPDATE ON public.defects
-FOR EACH ROW EXECUTE FUNCTION public.stamp_defect_status();
+DROP TRIGGER IF EXISTS tr_defect_status_stamps ON public.defects;
+CREATE TRIGGER tr_defect_status_stamps
+BEFORE INSERT OR UPDATE ON public.defects
+FOR EACH ROW EXECUTE FUNCTION public.handle_defect_status_stamps();

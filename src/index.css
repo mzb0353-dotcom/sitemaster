@@ -2,5 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
-body { background: #0f172a; margin: 0; }
-@media print { header, .no-print { display: none !important; } body { background: #fff; } }
+body {
+  background: #0f172a;
+  margin: 0;
+  /* אפליקציה מותקנת באייפון/אייפד: לא להיכנס מתחת לפס הבית ולפינות המסך */
+  padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* Safari ב-iOS מגדיל את המסך כשנכנסים לשדה עם גופן קטן מ-16px */
+@supports (-webkit-touch-callout: none) {
+  input.text-xs, select.text-xs, textarea.text-xs { font-size: 16px; }
+}
+
+@media print { header, .no-print { display: none !important; } body { background: #fff; padding: 0; } }
