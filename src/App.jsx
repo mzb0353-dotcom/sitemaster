@@ -13,7 +13,20 @@ export default function App() {
   useEffect(() => {
     sb.auth.getSession().then(({ data }) => setSession(data.session)).catch(() => setSession(null));
     const { data } = sb.auth.onAuthStateChange((_event, s) => setSession(s));
-    return () => data.subscription.unsubscribe();
+    // לחיצה על הקישור מהמייל פותחת לשונית חדשה שנכנסת למערכת; הלשונית שחיכתה במסך הקוד
+    // קולטת את הסשן כשחוזרים אליה (הסשן נשמר ב-localStorage המשותף).
+    const resync = () => {
+      if (document.visibilityState !== 'visible') return;
+      sb.auth.getSession().then(({ data: d }) => { if (d.session) setSession(d.session); }).catch(() => {});
+    };
+    const onStorage = (e) => { if (!e.key || e.key.includes('-auth-token')) resync(); };
+    document.addEventListener('visibilitychange', resync);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      data.subscription.unsubscribe();
+      document.removeEventListener('visibilitychange', resync);
+      window.removeEventListener('storage', onStorage);
+    };
   }, []);
 
   const userId = session && session.user && session.user.id;
