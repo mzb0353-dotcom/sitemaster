@@ -26,6 +26,29 @@ export default function LoginScreen() {
   const [code, setCode] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState(readLinkError);
+  const [mode, setModeState] = useState(() => { try { return localStorage.getItem('mt-login-mode') || 'email'; } catch { return 'email'; } });
+  const [password, setPassword] = useState('');
+  const [signingIn, setSigningIn] = useState(false);
+
+  const setMode = (m) => {
+    setModeState(m); setError(''); setSentTo('');
+    try { localStorage.setItem('mt-login-mode', m); } catch { /* מצב פרטי */ }
+  };
+
+  // כניסה עם סיסמה: לא תלויה בשליחת מיילים (במכסה החינמית של Supabase יש מעט מיילים לשעה)
+  const signInPassword = async (e) => {
+    e.preventDefault();
+    if (!email.trim() || !password) return;
+    setSigningIn(true);
+    setError('');
+    const { error: err } = await sb.auth.signInWithPassword({ email: email.trim(), password });
+    setSigningIn(false);
+    if (!err) return;
+    if (/invalid login credentials/i.test(err.message)) setError('אימייל או סיסמה שגויים. אם עדיין לא הגדרת סיסמה, היכנס עם קוד במייל והגדר אותה מתוך האפליקציה.');
+    else if (/not confirmed/i.test(err.message)) setError('האימייל עדיין לא אומת. היכנס פעם אחת עם קוד במייל.');
+    else if (/rate|seconds/i.test(err.message)) setError('יותר מדי ניסיונות. המתן דקה ונסה שוב.');
+    else setError('הכניסה נכשלה. נסה שוב.');
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -64,7 +87,25 @@ export default function LoginScreen() {
     <div className="min-h-screen text-slate-100 flex items-center justify-center p-4">
       <div className="w-full max-w-sm bg-slate-800/80 border border-slate-700 rounded-2xl p-6 space-y-5 shadow-xl">
         <Brand />
-        {sentTo ? (
+        {mode === 'password' ? (
+          <form onSubmit={signInPassword} className="space-y-3">
+            <Field label="אימייל">
+              <input type="email" required autoFocus dir="ltr" value={email}
+                onChange={(e) => { setEmail(e.target.value); setError(''); }}
+                placeholder="name@example.com" autoComplete="username" className={`${INPUT} text-left`} />
+            </Field>
+            <Field label="סיסמה">
+              <input type="password" required dir="ltr" value={password}
+                onChange={(e) => { setPassword(e.target.value); setError(''); }}
+                autoComplete="current-password" className={`${INPUT} text-left`} />
+            </Field>
+            {error && <p className="text-red-400 text-xs">{error}</p>}
+            <button type="submit" disabled={signingIn || !email.trim() || !password} className={`${BTN} w-full py-2.5`}>
+              {signingIn && <Spinner className="w-4 h-4" />}כניסה
+            </button>
+            <button type="button" onClick={() => setMode('email')} className="text-xs text-amber-400 hover:underline">כניסה עם קוד במייל</button>
+          </form>
+        ) : sentTo ? (
           <form onSubmit={verify} className="space-y-3">
             <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm"><Icon name="mail" className="w-5 h-5" />שלחנו לך מייל</div>
             <p className="text-slate-300 text-xs leading-relaxed">
@@ -93,7 +134,10 @@ export default function LoginScreen() {
             <button type="submit" disabled={sending} className={`${BTN} w-full py-2.5`}>
               {sending && <Spinner className="w-4 h-4" />}שלח לי קישור וקוד כניסה
             </button>
-            <p className="text-[11px] text-slate-500">הכניסה למוזמנים בלבד. אין צורך בסיסמה.</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] text-slate-500">הכניסה למוזמנים בלבד.</p>
+              <button type="button" onClick={() => setMode('password')} className="text-xs text-amber-400 hover:underline">כניסה עם סיסמה</button>
+            </div>
           </form>
         )}
       </div>

@@ -10,6 +10,7 @@ import Icon from '../components/Icon';
 import { Modal, Field, Spinner } from '../components/ui';
 import PhotoPicker from '../components/PhotoPicker';
 import Brand from '../components/Brand';
+import PasswordModal from '../components/PasswordModal';
 import BlueprintsTab from '../tabs/BlueprintsTab';
 import DefectsTab from '../tabs/DefectsTab';
 import RoomsTab from '../tabs/RoomsTab';
@@ -50,6 +51,7 @@ export default function Workspace({ profile }) {
   const [rejectReason, setRejectReason] = useState('');
   const [sysForm, setSysForm] = useState(null);
   const [loadedAt, setLoadedAt] = useState(0);
+  const [showPassword, setShowPassword] = useState(false);
 
   const reload = useCallback(async () => {
     const ws = await loadWorkspace();
@@ -208,6 +210,7 @@ export default function Workspace({ profile }) {
             )}
             <div className="flex items-center gap-2 bg-slate-800 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs">
               <div className="leading-tight"><div className="text-slate-100 font-medium">{profile.full_name}</div><div className="text-[10px] text-amber-400">{ROLE_LABELS[profile.role]}</div></div>
+              <button type="button" onClick={() => setShowPassword(true)} className="text-slate-400 hover:text-white p-1" title="סיסמת כניסה" aria-label="סיסמת כניסה"><Icon name="key" /></button>
               <button type="button" onClick={() => sb.auth.signOut()} className="text-slate-400 hover:text-white p-1" title="התנתק" aria-label="התנתק"><Icon name="logout" /></button>
             </div>
           </div>
@@ -415,6 +418,8 @@ export default function Workspace({ profile }) {
           </div>
         </Modal>
       )}
+
+      {showPassword && <PasswordModal onClose={() => setShowPassword(false)} />}
 
       {inspect && (
         <div onClick={() => setInspect(null)} className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4 cursor-pointer">
