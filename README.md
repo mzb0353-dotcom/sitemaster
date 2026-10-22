@@ -43,7 +43,9 @@ src/
 public/
   manifest.webmanifest     הגדרות ההתקנה (שם, צבעים, אייקונים)
   sw.js                    service worker: פתיחה גם בלי קליטה
-  icons/                   logo.svg והאייקונים שנוצרו ממנו
+  icons/                   אייקוני מסך הבית, נוצרים מ-brand/mt-master-logo.jpg
+brand/                     הלוגו הרשמי
+scripts/make_icons.py      יצירת האייקונים מהלוגו (python3 scripts/make_icons.py brand/mt-master-logo.jpg public/icons)
 supabase/                  סכמה ומיגרציות (ראו supabase/README.md)
 legacy/index.html          הגרסה המקורית בקובץ יחיד (גיבוי)
 ```

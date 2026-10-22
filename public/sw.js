@@ -2,7 +2,7 @@
 // - ניווט (פתיחת האפליקציה): קודם רשת, ואם אין — הגרסה האחרונה מהמטמון.
 // - קבצי build (assets/ עם hash בשם) ואייקונים: קודם מטמון.
 // - בקשות ל-Supabase ולכל דומיין אחר לא נשמרות במטמון.
-const CACHE = 'mt-master-v1';
+const CACHE = 'mt-master-v2';
 
 self.addEventListener('install', () => self.skipWaiting());
 
