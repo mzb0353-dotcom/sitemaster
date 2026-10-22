@@ -5,15 +5,27 @@ import Brand from '../components/Brand';
 import { Field, Spinner } from '../components/ui';
 import { INPUT, BTN } from '../lib/constants';
 
-// כניסה בקוד מהמייל: באפליקציה שמותקנת על מסך הבית באייפון, קישור מהמייל נפתח ב-Safari
-// ולא באפליקציה, ולכן הקישור לבדו לא מספיק. הקישור עדיין עובד כשמשתמשים בדפדפן.
+// שתי דרכי כניסה מאותו מייל: הקישור (בדפדפן) או הקוד. באפליקציה שמותקנת על מסך הבית
+// באייפון הקישור נפתח ב-Safari ולא באפליקציה, ולכן שם נכנסים עם הקוד.
+
+// קישור שפג תוקפו או כבר נוצל חוזר לאפליקציה עם error_description ב-hash או ב-query
+function readLinkError() {
+  const params = new URLSearchParams(window.location.hash.slice(1) || window.location.search.slice(1));
+  const code = params.get('error_code') || params.get('error');
+  if (!code) return '';
+  window.history.replaceState(null, '', window.location.pathname);
+  return /expired|invalid|denied/i.test(`${code} ${params.get('error_description') || ''}`)
+    ? 'קישור הכניסה פג תוקף או כבר נוצל. שלח קישור חדש.'
+    : 'הכניסה דרך הקישור נכשלה. שלח קישור חדש.';
+}
+
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [sending, setSending] = useState(false);
   const [sentTo, setSentTo] = useState('');
   const [code, setCode] = useState('');
   const [verifying, setVerifying] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(readLinkError);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -56,7 +68,8 @@ export default function LoginScreen() {
           <form onSubmit={verify} className="space-y-3">
             <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm"><Icon name="mail" className="w-5 h-5" />שלחנו לך מייל</div>
             <p className="text-slate-300 text-xs leading-relaxed">
-              הזן את הקוד שנשלח אל <span dir="ltr" className="font-bold text-white">{sentTo}</span>. אם לא הגיע, בדוק בספאם.
+              שלחנו מייל אל <span dir="ltr" className="font-bold text-white">{sentTo}</span>. לחץ על הקישור שבמייל,
+              או הזן כאן את קוד הספרות שמופיע בו. באפליקציה שמותקנת על מסך הבית — השתמש בקוד. אם המייל לא הגיע, בדוק בספאם.
             </p>
             <input
               value={code} onChange={(e) => { setCode(e.target.value); setError(''); }}
@@ -78,7 +91,7 @@ export default function LoginScreen() {
             </Field>
             {error && <p className="text-red-400 text-xs">{error}</p>}
             <button type="submit" disabled={sending} className={`${BTN} w-full py-2.5`}>
-              {sending && <Spinner className="w-4 h-4" />}שלח לי קוד כניסה
+              {sending && <Spinner className="w-4 h-4" />}שלח לי קישור וקוד כניסה
             </button>
             <p className="text-[11px] text-slate-500">הכניסה למוזמנים בלבד. אין צורך בסיסמה.</p>
           </form>
