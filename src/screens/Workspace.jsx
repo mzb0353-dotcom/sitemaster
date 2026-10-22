@@ -1,8 +1,11 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { sb } from '../lib/supabase';
-import { loadWorkspace, createProject, createRoom, deleteRoom, createDefect, reportFix, approveDefect, rejectDefect } from '../lib/api';
+import {
+  loadWorkspace, createProject, createRoom, deleteRoom, createDefect, reportFix, approveDefect, rejectDefect,
+  createSystem, updateSystem, deleteSystem, addMember, removeMember
+} from '../lib/api';
 import { explainError } from '../lib/format';
-import { ROLE_LABELS, INPUT, BTN, GHOST } from '../lib/constants';
+import { ROLE_LABELS, SYSTEM_LABELS, SYSTEM_STATUSES, INPUT, BTN, GHOST } from '../lib/constants';
 import Icon from '../components/Icon';
 import { Modal, Field, Spinner } from '../components/ui';
 import PhotoPicker from '../components/PhotoPicker';
@@ -12,13 +15,17 @@ import RoomsTab from '../tabs/RoomsTab';
 import ContractorsTab from '../tabs/ContractorsTab';
 import ReportTab from '../tabs/ReportTab';
 
+// קישורי התמונות החתומים תקפים לשעה; מרעננים את הנתונים לפני שהם פגים.
+const REFRESH_MS = 45 * 60 * 1000;
+
+const emptySystemForm = (roomId) => ({ roomId, id: null, type: 'plumbing', name: '', installer: '', details: '', status: SYSTEM_STATUSES[0] });
 const emptyDefectForm = () => ({ title: '', room: '', system: 'plumbing', contractorId: '', severity: 'medium', description: '', image: null });
 
 export default function Workspace({ profile }) {
   const isManager = profile.role === 'manager';
   const isContractor = profile.role === 'contractor';
 
-  const [data, setData] = useState({ projects: [], rooms: [], defects: [], contractors: [] });
+  const [data, setData] = useState({ projects: [], rooms: [], defects: [], people: [], members: null });
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [banner, setBanner] = useState('');
@@ -37,10 +44,16 @@ export default function Workspace({ profile }) {
   const [fixId, setFixId] = useState(null);
   const [fixPhoto, setFixPhoto] = useState(null);
   const [fixText, setFixText] = useState('');
+  const [confirm, setConfirm] = useState(null); // { message, action }
+  const [rejectTarget, setRejectTarget] = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [sysForm, setSysForm] = useState(null);
+  const [loadedAt, setLoadedAt] = useState(0);
 
   const reload = useCallback(async () => {
     const ws = await loadWorkspace();
     setData(ws);
+    setLoadedAt(Date.now());
     setProjectId((prev) => (ws.projects.some((p) => p.id === prev) ? prev : (ws.projects[0] && ws.projects[0].id) || null));
   }, []);
 
@@ -50,6 +63,15 @@ export default function Workspace({ profile }) {
     return () => { cancelled = true; };
   }, [reload]);
 
+  useEffect(() => {
+    if (!loadedAt) return undefined;
+    const refresh = () => { reload().catch(() => {}); };
+    const timer = setTimeout(refresh, REFRESH_MS);
+    const onVisible = () => { if (document.visibilityState === 'visible' && Date.now() - loadedAt > REFRESH_MS) refresh(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearTimeout(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, [loadedAt, reload]);
+
   const run = async (fn) => {
     setBusy(true); setBanner('');
     try { await fn(); await reload(); return true; }
@@ -57,7 +79,7 @@ export default function Workspace({ profile }) {
     finally { setBusy(false); }
   };
 
-  const { projects, rooms, defects, contractors } = data;
+  const { projects, rooms, defects, people, members } = data;
   const project = useMemo(() => projects.find((p) => p.id === projectId) || null, [projects, projectId]);
   const projRooms = useMemo(() => (project ? rooms.filter((r) => r.projectId === project.id) : []), [rooms, project]);
   const projDefects = useMemo(() => (project ? defects.filter((d) => d.projectId === project.id) : []), [defects, project]);
@@ -78,12 +100,19 @@ export default function Workspace({ profile }) {
       return !q || [d.title, d.room, d.contractor, d.description].some((t) => t.toLowerCase().includes(q));
     });
   }, [projDefects, fSystem, fStatus, query]);
+  // members === null: מיגרציית השיוכים טרם הורצה, ולכן כל הקבלנים זמינים לכל פרויקט (כמו קודם).
+  const memberIds = useMemo(
+    () => (members && project ? new Set(members.filter((m) => m.projectId === project.id).map((m) => m.userId)) : null),
+    [members, project]
+  );
+  const contractors = useMemo(() => people.filter((p) => p.role === 'contractor'), [people]);
+  const projContractors = useMemo(() => (memberIds ? contractors.filter((c) => memberIds.has(c.id)) : contractors), [contractors, memberIds]);
   const formRoom = projRooms.some((r) => r.name === form.room) ? form.room : (projRooms[0] && projRooms[0].name) || '';
   const openByContractor = useMemo(() => {
     const m = {};
-    defects.forEach((d) => { if (d.status === 'open' && d.contractorId) m[d.contractorId] = (m[d.contractorId] || 0) + 1; });
+    projDefects.forEach((d) => { if (d.status === 'open' && d.contractorId) m[d.contractorId] = (m[d.contractorId] || 0) + 1; });
     return m;
-  }, [defects]);
+  }, [projDefects]);
 
   const changeProject = (id) => { setProjectId(id); setForm(emptyDefectForm()); };
 
@@ -106,16 +135,16 @@ export default function Workspace({ profile }) {
     if (projRooms.some((r) => r.name === name)) { setRoomError('כבר קיים חדר בשם הזה בפרויקט.'); return; }
     if (await run(() => createRoom(project.id, name))) closeRoom();
   };
-  const removeRoom = async (room) => {
+  const removeRoom = (room) => {
     const linked = projDefects.filter((d) => d.roomId === room.id).length;
     const msg = linked ? `לחדר "${room.name}" משויכים ${linked} ליקויים. הם יישארו ברשימה, אבל החדר יימחק. להמשיך?` : `למחוק את החדר "${room.name}"?`;
-    if (window.confirm(msg)) await run(() => deleteRoom(room.id));
+    setConfirm({ message: msg, action: () => deleteRoom(room.id) });
   };
 
   const submitDefect = async (e) => {
     e.preventDefault();
     const room = projRooms.find((r) => r.name === formRoom);
-    const c = contractors.find((x) => x.id === form.contractorId);
+    const c = projContractors.find((x) => x.id === form.contractorId);
     if (!form.title.trim() || !room || !c || !project) return;
     const ok = await run(() => createDefect({
       projectId: project.id, roomId: room.id, roomName: room.name, system: form.system, title: form.title,
@@ -130,9 +159,30 @@ export default function Workspace({ profile }) {
     if (!fixPhoto || !fixId) return;
     if (await run(() => reportFix(fixId, fixText, fixPhoto))) { setFixId(null); setFixPhoto(null); setFixText(''); }
   };
-  const reject = (id) => {
-    const reason = window.prompt('נא להזין סיבה לדחיית התיקון ובקשת ביצוע חוזר:');
-    if (reason && reason.trim()) run(() => rejectDefect(id, reason.trim(), profile.full_name));
+  const closeReject = () => { if (busy) return; setRejectTarget(null); setRejectReason(''); };
+  const submitReject = async (e) => {
+    e.preventDefault();
+    if (!rejectTarget || !rejectReason.trim()) return;
+    if (await run(() => rejectDefect(rejectTarget, rejectReason.trim(), profile.full_name))) { setRejectTarget(null); setRejectReason(''); }
+  };
+
+  const runConfirm = async () => {
+    // נסגר גם בכישלון, כדי שהודעת השגיאה בראש המסך לא תוסתר מאחורי החלון
+    await run(confirm.action);
+    setConfirm(null);
+  };
+
+  const closeSystem = () => { if (busy) return; setSysForm(null); };
+  const submitSystem = async (e) => {
+    e.preventDefault();
+    if (!sysForm || !sysForm.name.trim()) return;
+    const ok = await run(() => (sysForm.id ? updateSystem(sysForm.id, sysForm) : createSystem(sysForm.roomId, sysForm)));
+    if (ok) setSysForm(null);
+  };
+  const removeSystem = () => {
+    const { id, name } = sysForm;
+    setSysForm(null);
+    setConfirm({ message: `למחוק את המערכת "${name}"?`, action: () => deleteSystem(id) });
   };
 
   const tabCls = (t) => `px-3.5 py-2 rounded-xl flex items-center gap-1.5 font-medium text-xs transition-all ${tab === t ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-700/40 text-slate-300 hover:bg-slate-700'}`;
@@ -213,7 +263,7 @@ export default function Workspace({ profile }) {
                   <button type="button" onClick={() => setTab('defects')} className={tabCls('defects')}><Icon name="alert" />ליקויים ({counts.total})</button>
                   <button type="button" onClick={() => setTab('rooms')} className={tabCls('rooms')}><Icon name="layers" />חדרים ותשתיות</button>
                   <button type="button" onClick={() => setTab('blueprints')} className={tabCls('blueprints')}><Icon name="file" />תוכניות</button>
-                  {isManager && <button type="button" onClick={() => setTab('contractors')} className={tabCls('contractors')}><Icon name="user" />קבלנים</button>}
+                  {isManager && <button type="button" onClick={() => setTab('contractors')} className={tabCls('contractors')}><Icon name="user" />צוות</button>}
                   <button type="button" onClick={() => setTab('report')} className={tabCls('report')}><Icon name="printer" />דוח</button>
                 </div>
               </div>
@@ -222,20 +272,24 @@ export default function Workspace({ profile }) {
                 <DefectsTab
                   shown={shown} busy={busy} isManager={isManager} isContractor={isContractor}
                   query={query} setQuery={setQuery} fSystem={fSystem} setFSystem={setFSystem} fStatus={fStatus} setFStatus={setFStatus}
-                  onNew={() => setModal('defect')} onInspect={setInspect} onFix={setFixId} onReject={reject}
+                  onNew={() => setModal('defect')} onInspect={setInspect} onFix={setFixId} onReject={setRejectTarget}
                   onApprove={(id) => run(() => approveDefect(id))}
                 />
               )}
 
               {tab === 'rooms' && (
                 <RoomsTab projRooms={projRooms} sysStats={sysStats} busy={busy} isManager={isManager}
-                  onAddRoom={() => setModal('room')} onRemoveRoom={removeRoom} />
+                  onAddRoom={() => setModal('room')} onRemoveRoom={removeRoom}
+                  onAddSystem={(room) => setSysForm(emptySystemForm(room.id))}
+                  onEditSystem={(room, sys) => setSysForm({ roomId: room.id, id: sys.id, type: sys.type, name: sys.name, installer: sys.installer, details: sys.details, status: sys.status || SYSTEM_STATUSES[0] })} />
               )}
 
               {tab === 'blueprints' && <BlueprintsTab projectId={project.id} userRole={profile.role} />}
 
               {tab === 'contractors' && isManager && (
-                <ContractorsTab contractors={contractors} openByContractor={openByContractor}
+                <ContractorsTab people={people} memberIds={memberIds} openByContractor={openByContractor} busy={busy}
+                  onAdd={(userId) => run(() => addMember(project.id, userId))}
+                  onRemove={(person) => setConfirm({ message: `להסיר את ${person.name} מהפרויקט "${project.name}"?`, action: () => removeMember(project.id, person.id) })}
                   onShowDefects={(c) => { setFSystem('all'); setFStatus('all'); setQuery(c.name); setTab('defects'); }} />
               )}
 
@@ -285,15 +339,19 @@ export default function Workspace({ profile }) {
             </div>
             <Field label="קבלן אחראי">
               <select required value={form.contractorId} onChange={(e) => setForm({ ...form, contractorId: e.target.value })} className={INPUT}>
-                <option value="">בחר קבלן...</option>{contractors.map((c) => <option key={c.id} value={c.id}>{c.name}{c.company ? ` (${c.company})` : ''}</option>)}
+                <option value="">בחר קבלן...</option>{projContractors.map((c) => <option key={c.id} value={c.id}>{c.name}{c.company ? ` (${c.company})` : ''}</option>)}
               </select>
-              {contractors.length === 0 && <p className="text-amber-400 text-xs mt-1">אין קבלנים רשומים. הזמן קבלן דרך Supabase.</p>}
+              {projContractors.length === 0 && (
+                <p className="text-amber-400 text-xs mt-1">
+                  {memberIds && contractors.length ? 'אין קבלנים משויכים לפרויקט. שייך קבלן בלשונית ״קבלנים״.' : 'אין קבלנים רשומים. הזמן קבלן דרך Supabase.'}
+                </p>
+              )}
             </Field>
             <Field label="תיאור מפורט"><textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className={`${INPUT} resize-none`} /></Field>
             <PhotoPicker value={form.image} onChange={(img) => setForm((p) => ({ ...p, image: img }))} label="תמונת הליקוי (אופציונלי)" />
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
               <button type="button" onClick={() => setModal(null)} className={GHOST}>ביטול</button>
-              <button type="submit" disabled={busy || !projRooms.length || !contractors.length} className={BTN}>{busy && <Spinner className="w-4 h-4" />}צור ליקוי</button>
+              <button type="submit" disabled={busy || !projRooms.length || !projContractors.length} className={BTN}>{busy && <Spinner className="w-4 h-4" />}צור ליקוי</button>
             </div>
           </form>
         </Modal>
@@ -307,6 +365,58 @@ export default function Workspace({ profile }) {
           <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
             <button type="button" onClick={closeFix} disabled={busy} className={GHOST}>ביטול</button>
             <button type="button" disabled={!fixPhoto || busy} onClick={submitFix} className={BTN}>{busy && <Spinner className="w-4 h-4" />}הגש לאישור מנהל</button>
+          </div>
+        </Modal>
+      )}
+
+      {rejectTarget && (
+        <Modal title="דחיית תיקון" onClose={closeReject}>
+          <form onSubmit={submitReject} className="space-y-3">
+            <p className="text-xs text-slate-300">הליקוי <span className="font-bold text-white">{rejectTarget.title}</span> יחזור לסטטוס פתוח, ותמונת התיקון תימחק.</p>
+            <Field label="סיבת הדחייה *">
+              <textarea required autoFocus rows={3} value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="למשל: האיטום לא הושלם בפינה הצפונית" className={`${INPUT} resize-none`} />
+            </Field>
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+              <button type="button" onClick={closeReject} disabled={busy} className={GHOST}>ביטול</button>
+              <button type="submit" disabled={busy || !rejectReason.trim()} className={BTN}>{busy && <Spinner className="w-4 h-4" />}דחה והחזר לביצוע</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {sysForm && (
+        <Modal title={sysForm.id ? 'עריכת מערכת' : 'הוספת מערכת לחדר'} onClose={closeSystem}>
+          <form onSubmit={submitSystem} className="space-y-3">
+            <Field label="שם המערכת *"><input required autoFocus value={sysForm.name} onChange={(e) => setSysForm({ ...sysForm, name: e.target.value })} placeholder="למשל: ניקוז כיור, לוח חשמל משני" className={INPUT} /></Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="סוג"><select value={sysForm.type} onChange={(e) => setSysForm({ ...sysForm, type: e.target.value })} className={INPUT}>
+                {Object.entries(SYSTEM_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                {!SYSTEM_LABELS[sysForm.type] && <option value={sysForm.type}>{sysForm.type}</option>}
+              </select></Field>
+              <Field label="סטטוס"><select value={sysForm.status} onChange={(e) => setSysForm({ ...sysForm, status: e.target.value })} className={INPUT}>
+                {SYSTEM_STATUSES.map((st) => <option key={st} value={st}>{st}</option>)}
+                {!SYSTEM_STATUSES.includes(sysForm.status) && <option value={sysForm.status}>{sysForm.status}</option>}
+              </select></Field>
+            </div>
+            <Field label="מתקין"><input value={sysForm.installer} onChange={(e) => setSysForm({ ...sysForm, installer: e.target.value })} className={INPUT} /></Field>
+            <Field label="פרטים"><textarea rows={2} value={sysForm.details} onChange={(e) => setSysForm({ ...sysForm, details: e.target.value })} className={`${INPUT} resize-none`} /></Field>
+            <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-800">
+              {sysForm.id ? <button type="button" onClick={removeSystem} disabled={busy} className="text-xs text-rose-400 hover:text-rose-300 disabled:opacity-50">מחק מערכת</button> : <span />}
+              <div className="flex gap-2">
+                <button type="button" onClick={closeSystem} disabled={busy} className={GHOST}>ביטול</button>
+                <button type="submit" disabled={busy || !sysForm.name.trim()} className={BTN}>{busy && <Spinner className="w-4 h-4" />}{sysForm.id ? 'שמור' : 'הוסף מערכת'}</button>
+              </div>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {confirm && (
+        <Modal title="אישור פעולה" onClose={() => { if (!busy) setConfirm(null); }}>
+          <p className="text-sm text-slate-200 leading-relaxed">{confirm.message}</p>
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+            <button type="button" onClick={() => setConfirm(null)} disabled={busy} className={GHOST}>ביטול</button>
+            <button type="button" onClick={runConfirm} disabled={busy} className="px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center gap-1.5">{busy && <Spinner className="w-4 h-4 text-white" />}אישור</button>
           </div>
         </Modal>
       )}

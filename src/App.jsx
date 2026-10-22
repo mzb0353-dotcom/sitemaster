@@ -22,12 +22,18 @@ export default function App() {
     setProfile(null); setProfileError('');
     if (!userId) return undefined;
     let cancelled = false;
-    sb.from('profiles').select('id, full_name, role, company, phone').eq('id', userId).single()
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (error) setProfileError('לא ניתן לטעון את הפרופיל שלך. ייתכן שהחשבון עדיין לא הוגדר, פנה למנהל.');
-        else setProfile(data);
-      });
+    const fetchProfile = () => sb.from('profiles').select('id, full_name, role, company, phone').eq('id', userId).maybeSingle();
+    (async () => {
+      let { data, error } = await fetchProfile();
+      // אין פרופיל (למשל משתמש שנוצר לפני הטריגר): השרת יוצר אותו לפי האימייל המאומת.
+      if (!error && !data) {
+        const rpc = await sb.rpc('ensure_my_profile');
+        if (!rpc.error) ({ data, error } = await fetchProfile());
+      }
+      if (cancelled) return;
+      if (error || !data) setProfileError('לא ניתן לטעון את הפרופיל שלך. ייתכן שהחשבון עדיין לא הוגדר, פנה למנהל.');
+      else setProfile(data);
+    })();
     return () => { cancelled = true; };
   }, [userId]);
 

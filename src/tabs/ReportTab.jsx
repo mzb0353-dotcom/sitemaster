@@ -12,13 +12,23 @@ export default function ReportTab({ project, projDefects }) {
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-right text-xs border border-slate-300">
-            <thead className="bg-slate-100 border-b border-slate-300"><tr>{['חדר', 'ליקוי', 'קבלן', 'סטטוס', 'אישור מנהל'].map((h) => <th key={h} className="p-2 border-l border-slate-300">{h}</th>)}</tr></thead>
+            <thead className="bg-slate-100 border-b border-slate-300"><tr>{['חדר', 'ליקוי', 'קבלן', 'סטטוס', 'תמונות', 'אישור מנהל'].map((h) => <th key={h} className="p-2 border-l border-slate-300">{h}</th>)}</tr></thead>
             <tbody>
-              {projDefects.length === 0 && <tr><td colSpan={5} className="p-4 text-center text-slate-500">אין ליקויים רשומים בפרויקט זה</td></tr>}
+              {projDefects.length === 0 && <tr><td colSpan={6} className="p-4 text-center text-slate-500">אין ליקויים רשומים בפרויקט זה</td></tr>}
               {projDefects.map((d) => (
-                <tr key={d.id} className="border-b border-slate-200">
+                <tr key={d.id} className="border-b border-slate-200 break-inside-avoid">
                   <td className="p-2 border-l border-slate-200 font-bold">{d.room}</td><td className="p-2 border-l border-slate-200">{d.title}</td>
                   <td className="p-2 border-l border-slate-200">{d.contractor}</td><td className="p-2 border-l border-slate-200">{STATUS_LABELS[d.status]}</td>
+                  <td className="p-1.5 border-l border-slate-200 min-w-[7.5rem]">
+                    <div className="flex gap-1">
+                      {[[d.beforeImage, 'לפני'], [d.afterImage, 'אחרי']].filter(([src]) => src).map(([src, label]) => (
+                        <figure key={label} className="text-center shrink-0">
+                          <img src={src} alt={`${label} - ${d.title}`} className="w-14 h-14 object-cover rounded border border-slate-300" />
+                          <figcaption className="text-[9px] text-slate-500">{label}</figcaption>
+                        </figure>
+                      ))}
+                    </div>
+                  </td>
                   <td className="p-2 font-medium">{d.approvedBy || 'טרם אושר'}</td>
                 </tr>
               ))}

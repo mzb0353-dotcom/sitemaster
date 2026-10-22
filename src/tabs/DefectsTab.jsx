@@ -73,7 +73,7 @@ export default function DefectsTab({
               )}
               {isManager && d.status === 'pending' && (
                 <>
-                  <button type="button" disabled={busy} onClick={() => onReject(d.id)} className="bg-rose-500/20 disabled:opacity-50 text-rose-400 border border-rose-500/30 font-bold px-3 py-1.5 rounded-xl flex items-center gap-1"><Icon name="x" />דחה</button>
+                  <button type="button" disabled={busy} onClick={() => onReject(d)} className="bg-rose-500/20 disabled:opacity-50 text-rose-400 border border-rose-500/30 font-bold px-3 py-1.5 rounded-xl flex items-center gap-1"><Icon name="x" />דחה</button>
                   <button type="button" disabled={busy} onClick={() => onApprove(d.id)} className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold px-4 py-1.5 rounded-xl flex items-center gap-1.5"><Icon name="check" />אשר וסגור</button>
                 </>
               )}

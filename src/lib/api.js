@@ -20,13 +20,17 @@ async function uploadDefectPhoto(defectId, kind, dataUrl) {
 }
 
 export async function loadWorkspace() {
-  const [projects, rooms, defects, contractors] = await Promise.all([
+  const [projects, rooms, defects, people, members] = await Promise.all([
     sb.from('projects').select('*').order('created_at', { ascending: false }),
     sb.from('rooms').select('*, systems(*)').order('created_at'),
     sb.from('defects').select('*, approver:profiles!approved_by(full_name)').order('created_at', { ascending: false }),
-    sb.from('profiles').select('id, full_name, company, phone').eq('role', 'contractor').order('full_name')
+    sb.from('profiles').select('id, full_name, role, company, phone').in('role', ['contractor', 'architect']).order('full_name'),
+    sb.from('project_members').select('project_id, user_id')
   ]);
-  [projects, rooms, defects, contractors].forEach((r) => { if (r.error) throw r.error; });
+  [projects, rooms, defects, people].forEach((r) => { if (r.error) throw r.error; });
+  // עד שמריצים את מיגרציית project_members הטבלה לא קיימת; אז members=null ואין סינון לפי שיוך.
+  const membersMissing = members.error && (members.error.code === '42P01' || members.error.code === 'PGRST205');
+  if (members.error && !membersMissing) throw members.error;
 
   const urls = await getSignedUrls('defects', defects.data.flatMap((d) => [d.before_image_path, d.after_image_path]));
 
@@ -49,9 +53,11 @@ export async function loadWorkspace() {
       reportedDate: fmtDate(d.reported_date), fixedDate: fmtDate(d.fixed_date) || null,
       beforeImage: (d.before_image_path && urls[d.before_image_path]) || null,
       afterImage: (d.after_image_path && urls[d.after_image_path]) || null,
+      beforePath: d.before_image_path, afterPath: d.after_image_path,
       fixNote: d.fix_note || '', approvedBy: (d.approver && d.approver.full_name) || null
     })),
-    contractors: contractors.data.map((c) => ({ id: c.id, name: c.full_name, company: c.company || '', phone: c.phone || '' }))
+    people: people.data.map((c) => ({ id: c.id, name: c.full_name, role: c.role, company: c.company || '', phone: c.phone || '' })),
+    members: membersMissing ? null : members.data.map((m) => ({ projectId: m.project_id, userId: m.user_id }))
   };
 }
 
@@ -62,6 +68,37 @@ export async function createProject(f) {
   }).select('id').single();
   if (error) throw error;
   return data.id;
+}
+
+const SYSTEM_ROW = (f) => ({
+  system_type: f.type, name: f.name.trim(), installer_name: f.installer.trim() || null,
+  details: f.details.trim() || null, status: f.status
+});
+
+export async function createSystem(roomId, f) {
+  const { error } = await sb.from('systems').insert({ room_id: roomId, ...SYSTEM_ROW(f) });
+  if (error) throw error;
+}
+
+export async function updateSystem(id, f) {
+  const { data, error } = await sb.from('systems').update(SYSTEM_ROW(f)).eq('id', id).select('id');
+  if (error) throw error;
+  if (!data || !data.length) throw new Error('העדכון לא בוצע: אין הרשאה לעדכן מערכת זו.');
+}
+
+export async function deleteSystem(id) {
+  const { error } = await sb.from('systems').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function addMember(projectId, userId) {
+  const { error } = await sb.from('project_members').insert({ project_id: projectId, user_id: userId });
+  if (error) throw error;
+}
+
+export async function removeMember(projectId, userId) {
+  const { error } = await sb.from('project_members').delete().eq('project_id', projectId).eq('user_id', userId);
+  if (error) throw error;
 }
 
 export async function createRoom(projectId, name) {
@@ -106,5 +143,8 @@ export async function reportFix(defectId, note, afterDataUrl) {
 }
 
 export const approveDefect = (id) => updateDefect(id, { status: 'closed' });
-export const rejectDefect = (id, reason, managerName) =>
-  updateDefect(id, { status: 'open', fix_note: `נדחה ע"י ${managerName}: ${reason}`, after_image_path: null, fixed_date: null });
+export async function rejectDefect(defect, reason, managerName) {
+  await updateDefect(defect.id, { status: 'open', fix_note: `נדחה ע"י ${managerName}: ${reason}`, after_image_path: null, fixed_date: null });
+  // תמונת התיקון שנדחה כבר לא מקושרת לשום רשומה; מוחקים אותה (בלי לחסום אם אין הרשאה).
+  if (defect.afterPath) await sb.storage.from('defects').remove([defect.afterPath]).catch(() => {});
+}

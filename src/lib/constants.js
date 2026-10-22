@@ -1,6 +1,8 @@
 export const ROLE_LABELS = { manager: 'מנהל פרויקט', contractor: 'קבלן מבצע', architect: 'אדריכל' };
 export const SEVERITY_LABELS = { high: 'קריטי', medium: 'בינוני', low: 'נמוך' };
 export const STATUS_LABELS = { open: 'פתוח', pending: 'ממתין לאישור', closed: 'מאושר' };
+export const SYSTEM_LABELS = { plumbing: 'אינסטלציה', electrical: 'חשמל', hvac: 'מיזוג אוויר' };
+export const SYSTEM_STATUSES = ['ממתין להתקנה', 'הותקן בשטח', 'מאושר ביצוע'];
 export const DISCIPLINES = ['אדריכלות', 'אינסטלציה', 'חשמל', 'קונסטרוקציה', 'מיזוג אוויר'];
 export const BLUEPRINT_TYPES = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png' };
 
